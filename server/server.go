@@ -16,8 +16,8 @@ func Start(){
 		Handler: mutex,
 	}
 	
-	mutex.Handle("/",http.FileServer(http.Dir(".")))
-	mutex.HandleFunc("/healthz",)
+	mutex.Handle("/app/",http.FileServer(http.Dir(".")))
+	mutex.HandleFunc("/healthz",handlerHealthz)
 	err := server.ListenAndServe()
 	if err != nil {
 		log.Fatal(err)
@@ -26,7 +26,10 @@ func Start(){
 }
 
 func handlerHealthz(w http.ResponseWriter,req *http.Request){
-	res := http.Response{}
-	res.Header.Set("Content-Type","text/plain")
+	
+	w.Header().Set("Content-Type","text/plain")
+	w.Header().Set("charset","utf-8")
+	w.WriteHeader(200)
+	w.Write([]byte("Ok"))
 	
 }
