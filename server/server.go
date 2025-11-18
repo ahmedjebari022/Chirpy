@@ -22,6 +22,7 @@ const PORT = "8080"
 func Start(){
 	mutex := http.NewServeMux()
 	dbUrl := os.Getenv("DB_URL")
+	secretKey := os.Getenv("SECRET_KEY")
 	db, err := sql.Open("postgres", dbUrl)
 	if err != nil {
 		log.Fatal(err)
@@ -31,6 +32,7 @@ func Start(){
 	cfg := apiConfig{
 		fileserverHits: atomic.Int32{},
 		db: dbQueries,
+		sk: secretKey,
 	}
 	server := http.Server{
 		Addr : ":" + PORT,
@@ -66,6 +68,7 @@ func handlerHealthz(w http.ResponseWriter,req *http.Request){
 type apiConfig struct{
 	fileserverHits atomic.Int32
 	db *database.Queries
+	sk string
 }
 
 
@@ -149,6 +152,7 @@ type User struct{
 	CreatedAt time.Time `json:"created_at"` 
 	UpdateAt time.Time `json:"updated_at"`
 	Email string `json:"email"`
+	
 }
 
 type Chirp struct{
@@ -206,14 +210,24 @@ func (cfg *apiConfig)handlerCreateUser(w http.ResponseWriter, req *http.Request)
 }
 //helper functions 
 
-func (cfg *apiConfig)HandlerCreateChirps(w http.ResponseWriter,r *http.Request){
+func (cfg *apiConfig)HandlerCreateChirps(w http.ResponseWriter, r *http.Request){
 		type reqBody struct{
 			Body string `json:"body"`
 			UserId uuid.UUID `json:"user_id"`
 		}
+		token, err := auth.GetBearerToken(r.Header)
+		if err != nil {
+			respondeWithError(w,401,err.Error())
+			return 
+		}
+		id, err := auth.ValidateJWT(token, cfg.sk)
+		if err != nil {
+			respondeWithError(w, 401, err.Error())
+			return 
+		}
 		decoder := json.NewDecoder(r.Body)
 		var req reqBody
-		err := decoder.Decode(&req)
+		err = decoder.Decode(&req)
 		if err != nil {
 			w.Header().Set("Content-Type","application/json")
 			w.WriteHeader(400)
@@ -240,9 +254,11 @@ func (cfg *apiConfig)HandlerCreateChirps(w http.ResponseWriter,r *http.Request){
 			}
 			return
 		}
+		
+
 		chirp, err := cfg.db.CreateChirp(r.Context(),database.CreateChirpParams{
 			Body: req.Body,
-			UserID: req.UserId,
+			UserID: id,
 		})
 		if err != nil {
 			respondeWithError(w,500,err.Error())
@@ -253,7 +269,7 @@ func (cfg *apiConfig)HandlerCreateChirps(w http.ResponseWriter,r *http.Request){
 			CreatedAt: chirp.CreatedAt,
 			UpdateAt: chirp.UpdatedAt,
 			Body: chirp.Body,
-			UserId: chirp.UserID,
+			UserId: id,
 		}
 		err = respondeWithJson(w,201,chirpResponse)
 		if err != nil {
@@ -313,6 +329,7 @@ func (cfg *apiConfig) HandlerLogin(w http.ResponseWriter,req *http.Request){
 	type loginRequest struct{
 		Email string `json:"email"`
 		Password string `json:"password"`
+		ExpiresIn time.Duration `json:"expires_in_seconds"`
 	}
 	decoder := json.NewDecoder(req.Body)
 	var loginReq loginRequest
@@ -335,13 +352,32 @@ func (cfg *apiConfig) HandlerLogin(w http.ResponseWriter,req *http.Request){
 		respondeWithError(w,401,"Incoorect email or password")
 		return 
 	}
-	userRes := User{	
-				Id: user.ID,
-				Email: user.Email,
-				CreatedAt: user.CreatedAt,
-				UpdateAt: user.UpdatedAt,
-				}
-		respondeWithJson(w,200,userRes)
+	var duration time.Duration = loginReq.ExpiresIn
+	if loginReq.ExpiresIn > 3600*time.Second || loginReq.ExpiresIn == 0*time.Second{
+		duration = 3600*time.Second
+	}
+	jwt, err := auth.MakeJWT(user.ID,cfg.sk,duration)
+	if err != nil {
+		respondeWithError(w,500,err.Error())
+		return
+	}
+	userRes := struct{
+		Id  uuid.UUID `json:"id"`
+		CreatedAt time.Time `json:"created_at"` 
+		UpdateAt time.Time `json:"updated_at"`
+		Email string `json:"email"`	
+		Token string `json:"token"`
+	}{
+		Id: user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdateAt: user.UpdatedAt,
+		Email: user.Email,
+		Token: jwt,
+
+	}
+	
+	
+	respondeWithJson(w,200,userRes)
 		
 
 }

@@ -2,6 +2,8 @@ package auth
 
 import (
 	"fmt"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/alexedwards/argon2id"
@@ -36,7 +38,7 @@ func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration)(stri
 		Subject: userID.String(),
 	}
 	token := jwt.NewWithClaims(signingMethod,claim)
-	jwt, err := token.SignedString(tokenSecret)
+	jwt, err := token.SignedString([]byte(tokenSecret))
 	if err != nil {
 		return "",err
 	}
@@ -44,10 +46,10 @@ func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration)(stri
 }
 
 func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error){
-	token, err := jwt.ParseWithClaims(tokenString,jwt.RegisteredClaims{}, func(token *jwt.Token)(any,error){
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC);!ok{
-			return nil,fmt.Errorf("unexpected signing method")
-		}	
+	token, err := jwt.ParseWithClaims(tokenString,&jwt.RegisteredClaims{}, func(token *jwt.Token)(any,error){
+		// if _, ok := token.Method.(*jwt.SigningMethodHMAC);!ok{
+		// 	return nil,fmt.Errorf("unexpected signing method")
+		// }	
 		return []byte(tokenSecret),nil
 	})
 	if err != nil {
@@ -66,4 +68,13 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error){
 		return uuid.UUID{},err
 	}
 	return userId,nil
+}
+
+func GetBearerToken(headers http.Header) (string, error){
+	TOKEN_STRING := headers.Get("Authorization")
+	if TOKEN_STRING == ""{
+		return TOKEN_STRING,fmt.Errorf("no token provider in the headers")
+	}
+	TOKEN_STRING = strings.TrimPrefix(TOKEN_STRING,"Bearer ")
+	return TOKEN_STRING,nil
 }
