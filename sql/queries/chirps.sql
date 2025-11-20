@@ -11,8 +11,14 @@ RETURNING *;
 
 
 -- name: GetChirps :many
-SELECT * FROM chirps ORDER BY created_at ASC;
+SELECT * FROM chirps
+WHERE (sqlc.narg('author_id')::uuid IS NULL OR user_id = sqlc.narg('author_id'))
+ORDER BY created_at ASC;
 
 
 -- name: GetChirp :one 
 SELECT * FROM chirps WHERE id = $1;
+
+
+-- name: DeleteChirpById :exec
+DELETE FROM chirps WHERE id = $1;
